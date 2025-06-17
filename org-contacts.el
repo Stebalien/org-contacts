@@ -513,7 +513,7 @@ prefixes rather than just the beginning of the string."
 A group FOO is composed of contacts with the tag FOO."
   (let* ((completion-ignore-case org-contacts-completion-ignore-case)
          (group-completion-p (string-match-p
-                              (concat "^" org-contacts-group-prefix) string)))
+                              (concat "^" (regexp-quote org-contacts-group-prefix)) string)))
     (when group-completion-p
       (let ((completion-list
              (all-completions
@@ -558,7 +558,7 @@ For example: FOO-BAR will match entries tagged with FOO but not with BAR.
 See (org) Matching tags and properties for a complete description."
   (let* ((completion-ignore-case org-contacts-completion-ignore-case)
          (completion-p (string-match-p
-                        (concat "^" org-contacts-tags-props-prefix) string)))
+                        (concat "^" (regexp-quote org-contacts-tags-props-prefix)) string)))
     (when completion-p
       (let ((result
              (mapconcat
@@ -743,7 +743,7 @@ Usage: (add-hook \\='completion-at-point-functions
                    (cons org-contacts-email-property (concat "\\b" (regexp-quote email) "\\b")))
                   (when name
                     (org-contacts-filter
-                     (concat "^" name "$")))))))
+                     (concat "^" (regexp-quote name) "$")))))))
 
 (defun org-contacts-gnus-article-from-goto ()
   "Go to contact in the From address of current Gnus message."
