@@ -690,6 +690,21 @@ See (org) Matching tags and properties for a complete description."
          (marker (nth 1 contact)))
     (cons (marker-buffer marker) (marker-position marker))))
 
+(defun org-contacts-org-complete--exit-function (cand status)
+  "Expand CAND into an org-contact link if STATUS is not `exact'.
+
+If `org-id-link-to-org-use-id' is non-nil, expand to an ID link instead
+if the contact has an ID property."
+  (when (and (not (eq status 'exact)) (string-prefix-p "@" cand))
+    (let ((name (substring-no-properties cand 1)))
+      (delete-region (- (point) (length cand)) (point))
+      (if-let* (((bound-and-true-p org-id-link-to-org-use-id))
+                (contact (assoc-string name (org-contacts-db)))
+                (props (nth 2 contact))
+                (id (cdr (assoc-string "ID" props))))
+          (insert "[[id:" id "][" cand "]]")
+        (insert "[[org-contact:" name "][" cand "]]")))))
+
 ;;;###autoload
 (defun org-contacts-org-complete-function ()
   "`completion-at-point' function to complete @name in `org-mode'.
@@ -712,8 +727,7 @@ Usage: (add-hook \\='completion-at-point-functions
             :exclusive 'no
             ;; properties check out `completion-extra-properties'
             :annotation-function #'org-contacts-org-complete--annotation-function
-            ;; :exit-function ; TODO change completion candidate inserted contact name into org-contact link??
-
+            :exit-function #'org-contacts-org-complete--exit-function
             :company-docsig #'identity                                    ; metadata
             :company-doc-buffer #'org-contacts-org-complete--doc-function ; doc popup
             :company-location #'org-contacts-org-complete--location-function))))
