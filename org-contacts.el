@@ -1495,39 +1495,23 @@ are effectively trimmed.  If nil, all zero-length substrings are retained."
 ;;;###autoload
 (defun org-contacts-link-open (query)
   "Open org-contacts: link with jumping or searching QUERY."
-  (let* ((file-path (car (org-contacts-files)))
-         (file-name (file-name-nondirectory file-path))
-         (buf (or (get-buffer file-name) (get-buffer (find-file-noselect file-path)))))
-    (cond
-     ;; /query/ format searching
-     ((string-match "/.*/" query)
-      (with-current-buffer buf
-        (string-match "/\\(.*\\)/" query)
-        (occur (match-string 1 query))))
-
-     ;; jump to exact contact headline directly
-     (t
-      (with-current-buffer buf
-        (if-let* ((position (org-find-exact-headline-in-buffer query)))
-            (progn
-              (goto-char (marker-position position))
-              (org-fold-show-context))
-          (user-error "[org-contacts] Can't find <%s> in your `org-contacts-files'" query)))
-      (display-buffer buf '(display-buffer-below-selected))
-
-      ;; FIXME:
-      ;; (let* ((contact-entry (map-filter
-      ;;                        (lambda (contact-plist)
-      ;;                          (if (string-equal (plist-get contact-plist :name) query)
-      ;;                              contact-plist))
-      ;;                        (org-contacts-all-contacts)))
-      ;;        (contact-name (plist-get contact-entry :name))
-      ;;        (file (plist-get contact-entry :file))
-      ;;        (position (plist-get contact-entry :position))
-      ;;        (buf (get-buffer (file-name-nondirectory file))))
-      ;;   (with-current-buffer buf (goto-char position))
-      ;;   (display-buffer buf '(display-buffer-below-selected)))
-      ))))
+    (pcase query
+      ((rx bos "/" (let query (* any)) "/" eos)
+       (multi-occur
+        (thread-last
+          (org-contacts-files)
+          (seq-remove (lambda (fname)
+                        (catch 'nextfile (org-check-agenda-file fname))))
+          (seq-map #'find-file-noselect))
+        (regexp-quote query)))
+     (_ ; jump to exact contact headline directly
+      (let* ((marker (nth 1 (assoc-string query (org-contacts-db))))
+             (buf (marker-buffer marker)))
+        (with-current-buffer buf
+          (when (or (> marker (point-max)) (< marker (point-min)))
+            (widen))
+          (goto-char marker))
+        (display-buffer buf '(display-buffer-below-selected))))))
 
 ;;;###autoload
 (defun org-contacts-link-complete (&optional _arg)
