@@ -1497,7 +1497,8 @@ are effectively trimmed.  If nil, all zero-length substrings are retained."
 ;;;###autoload
 (defun org-contacts-link-store ()
   "Store the contact in `org-contacts-files' with a link."
-  (when (and (eq major-mode 'org-mode)
+  (when (and (not (bound-and-true-p org-id-link-to-org-use-id))
+             (eq major-mode 'org-mode)
              (member (buffer-file-name)
                      (mapcar #'expand-file-name (org-contacts-files)))
              (not (org-before-first-heading-p))
@@ -1506,16 +1507,14 @@ are effectively trimmed.  If nil, all zero-length substrings are retained."
                         (org-element-property :todo-keyword element)
                         (org-get-tags element)
                         (org-element-property :level element))))
-    (if (bound-and-true-p org-id-link-to-org-use-id)
-        (org-id-store-link)
-      (let ((headline-str (substring-no-properties (org-get-heading t t t t))))
-        (org-link-store-props
-         :type "org-contact"
-         :link headline-str
-         :description headline-str)
-        (let ((link (concat "org-contact:" headline-str)))
-          (org-link-add-props :link link :description headline-str)
-          link)))))
+    (let ((headline-str (substring-no-properties (org-get-heading t t t t))))
+      (org-link-store-props
+       :type "org-contact"
+       :link headline-str
+       :description headline-str)
+      (let ((link (concat "org-contact:" headline-str)))
+        (org-link-add-props :link link :description headline-str)
+        link))))
 
 (defun org-contacts--all-contacts ()
   "Return a list of all contacts in `org-contacts-files'.
