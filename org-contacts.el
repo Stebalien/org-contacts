@@ -234,15 +234,6 @@ A regexp matching strings of whitespace, `,' and `;'.")
 (defvar org-contacts-last-update nil
   "Last time the Org Contacts database has been updated.")
 
-(defvar org-contacts-all-contacts nil
-  "A data store variable of all contacts.")
-
-(defun org-contacts-all-contacts ()
-  "Return the data of all contacts."
-  (setq org-contacts-all-contacts
-	(with-memoization org-contacts-all-contacts
-          (org-contacts--all-contacts))))
-
 (defun org-contacts-db-need-update-p ()
   "Determine whether `org-contacts-db' needs to be refreshed."
   (or (null org-contacts-last-update)
@@ -312,17 +303,12 @@ buffer."
 
 (defun org-contacts-search-contact (name)
   "Search contact NAME in cached database and return org element POM."
-  (let (epom)
-    (dolist (contact (org-contacts-all-contacts) epom)
-      (when (string-equal (plist-get contact :name) name)
-        (with-current-buffer (find-file-noselect (expand-file-name (car org-contacts-files)))
-          (or (save-excursion
-                (goto-char (plist-get contact :position))
-                (setq epom (org-element-context)))
-              (progn
-                (org-goto-marker-or-bmk (org-find-exact-headline-in-buffer name))
-                (setq epom (org-element-context)))))))
-    epom))
+  (when-let* ((contact (assoc-string name (org-contacts-db)))
+              (marker (nth 1 contact)))
+    (with-current-buffer (marker-buffer marker)
+      (org-with-wide-buffer
+         (goto-char marker)
+         (org-element-context)))))
 
 ;;; TEST:
 ;; (org-contacts-search-contact "stardiviner")
@@ -670,29 +656,20 @@ See (org) Matching tags and properties for a complete description."
 
 (defun org-contacts-org-complete--doc-function (candidate)
   "Return `org-contacts' content of contact CANDIDATE."
-  (let* ((candidate (substring-no-properties candidate 1 nil))
-         (contact (seq-find
-                   (lambda (contact) (string-equal (plist-get contact :name) candidate))
-                   (org-contacts-all-contacts)))
-         (name (plist-get contact :name))
-         (file (plist-get contact :file))
-         (position (plist-get contact :position))
-         (doc-buffer (get-buffer-create " *org-contact*"))
-         (org-contact-buffer (get-buffer (find-file-noselect file)))
-         ;; get org-contact headline and property drawer.
-         (contents (with-current-buffer org-contact-buffer
-                     (when (derived-mode-p 'org-mode)
-                       (save-excursion
-                         (goto-char position)
-                         (cond ((ignore-errors (org-edit-src-code))
-                                (delete-other-windows))
-                               ((org-at-block-p)
-                                (org-narrow-to-block))
-                               (t (org-narrow-to-subtree)))
-                         (let ((content (buffer-substring (point-min) (point-max))))
-                           (when (buffer-narrowed-p) (widen))
-                           content))))))
-    (ignore name)
+  (when-let* ((candidate (substring-no-properties candidate 1 nil))
+              (contact (assoc-string candidate (org-contacts-db)))
+              (marker (nth 1 contact))
+              (doc-buffer (get-buffer-create " *org-contact*"))
+              ;; get org-contact headline and property drawer.
+              (contents (with-current-buffer (marker-buffer marker)
+                          (org-with-wide-buffer ; saves the restriction & widens
+                           (goto-char marker)
+                           (cond ((ignore-errors (org-edit-src-code))
+                                  (delete-other-windows))
+                                 ((org-at-block-p)
+                                  (org-narrow-to-block))
+                                 (t (org-narrow-to-subtree)))
+                           (buffer-substring (point-min) (point-max))))))
     (with-current-buffer doc-buffer
       (read-only-mode 1)
       (let ((inhibit-read-only t))
@@ -708,17 +685,10 @@ See (org) Matching tags and properties for a complete description."
 
 (defun org-contacts-org-complete--location-function (candidate)
   "Return `org-contacts' location of contact CANDIDATE."
-  (let* ((candidate (substring-no-properties candidate 1 nil))
-         (contact (seq-find
-                   (lambda (contact) (string-equal (plist-get contact :name) candidate))
-                   (org-contacts-all-contacts)))
-         (name (plist-get contact :name))
-         (file (plist-get contact :file))
-         (position (plist-get contact :position)))
-    (ignore name)
-    (with-current-buffer (find-file-noselect file)
-      (goto-char position)
-      (cons (current-buffer) position))))
+  (let* ((contact (assoc-string (substring-no-properties candidate 1)
+                                (org-contacts-db)))
+         (marker (nth 1 contact)))
+    (cons (marker-buffer marker) (marker-position marker))))
 
 ;;;###autoload
 (defun org-contacts-org-complete-function ()
@@ -735,8 +705,8 @@ Usage: (add-hook \\='completion-at-point-functions
             (completion-table-dynamic
              (lambda (_)
                (mapcar
-                (lambda (contact) (concat "@" (plist-get contact :name)))
-                (org-contacts-all-contacts))))
+                (lambda (contact) (concat "@" (car contact)))
+                (org-contacts-db))))
 
             :predicate 'stringp
             :exclusive 'no
@@ -998,7 +968,6 @@ This can be property key checking."
 (defun org-contacts-cache-reset ()
   "Reset `org-contacts--candidates-cache'."
   (interactive)
-  (setq org-contacts-all-contacts nil)
   (setq org-contacts--candidates-cache nil))
 
 (defun org-contacts-browse-function (contact-name)
@@ -1251,20 +1220,27 @@ address."
 Return a org-contacts \"NICKNAME\" as property's value after completion."
   (let* ((org-contacts-candidates-propertized
           (mapcar
-           (lambda (plist)
-             (let* ((name (plist-get plist :name))
-                    (name-english (plist-get plist :name-english))
-                    (nick (plist-get plist :nick)))
+           (lambda (contact)
+             (let* ((name (car contact))
+                    (properties (nth 2 contact))
+                    (nick (cdr (assoc-string org-contacts-nickname-property properties)))
+                    (alt-names (seq-keep (lambda (item)
+                                           (when (and (cdr item)
+                                                      (not (string-empty-p (cdr item)))
+                                                      (string-prefix-p "NAME(" (car item)))
+                                             (propertize (cdr item) :face '(:foreground "LightSeaGreen"))))
+                                         properties)))
                (unless (or (null nick) (string-empty-p nick))
                  (propertize nick        ; <- The `completing-read' select candidate inserted value.
                              'display (concat
-                                       (when name (propertize (format "%s " name) :face '(:foreground "ForestGreen")))
-                                       (unless (or (null name-english) (string-empty-p name-english))
-                                         (propertize (format "%s " name-english) :face '(:foreground "LightSeaGreen")))
+                                       (string-join (append
+                                                     (when name
+                                                       (list (propertize name :face '(:foreground "ForestGreen"))))
+                                                     alt-names)
+                                                    ", ")
                                        (unless (or (null nick) (string-empty-p nick))
-                                         (propertize (format "(%s) " nick) :face '(:foreground "LightGray"))))))))
-           (org-contacts-all-contacts)))
-         ;; (contact-names (mapcar (lambda (plist) (plist-get plist :name)) (org-contacts-all-contacts)))
+                                         (propertize (format " (%s) " nick) :face '(:foreground "LightGray"))))))))
+           (org-contacts-db)))
          (contact-nick (substring-no-properties
                         (org-completing-read (or prompt "org-contacts NICKNAME: ")
                                              (append org-contacts-candidates-propertized collection
@@ -1516,38 +1492,6 @@ are effectively trimmed.  If nil, all zero-length substrings are retained."
         (org-link-add-props :link link :description headline-str)
         link))))
 
-(defun org-contacts--all-contacts ()
-  "Return a list of all contacts in `org-contacts-files'.
-Each element has the form (NAME . (FILE . POSITION))."
-  (car (mapcar
-        (lambda (file)
-          (unless (buffer-live-p (get-buffer (file-name-nondirectory file)))
-            (find-file-noselect file))
-          (with-current-buffer (find-file-noselect file)
-            (org-map-entries
-             (lambda ()
-               (let* ((name (substring-no-properties (org-get-heading t t t t)))
-                      (file (buffer-file-name))
-                      (position (point))
-                      ;; extract properties Org entry headline at `position' as data API for better contacts searching.
-                      (entry-properties (org-entry-properties position 'standard))
-                      (property-name-chinese (cdr (assoc (upcase "NAME(Chinese)")  entry-properties)))
-                      (property-name-english (cdr (assoc (upcase "NAME(English)")  entry-properties)))
-                      (property-nick  (cdr (assoc "NICK" entry-properties)))
-                      (property-email (cdr (assoc "EMAIL" entry-properties)))
-                      ;; (property-mobile (cdr (assoc "MOBILE" entry-properties)))
-                      (property-wechat (cdr (assoc (upcase "WeChat") entry-properties)))
-                      (property-qq (cdr (assoc "QQ" entry-properties))))
-                 (list :name name :file file :position position
-                       :name-chinese property-name-chinese
-                       :name-english property-name-english
-                       :nick property-nick
-                       :email property-email
-                       :mobile property-email
-                       :wechat property-wechat
-                       :qq property-qq))))))
-        (org-contacts-files))))
-
 ;;;###autoload
 (defun org-contacts-link-open (query)
   "Open org-contacts: link with jumping or searching QUERY."
@@ -1588,10 +1532,7 @@ Each element has the form (NAME . (FILE . POSITION))."
 ;;;###autoload
 (defun org-contacts-link-complete (&optional _arg)
   "Create a `org-contacts' link using completion."
-  (let ((name (completing-read "org-contacts NAME: "
-                               (mapcar
-                                (lambda (plist) (plist-get plist :name))
-                                (org-contacts-all-contacts)))))
+  (let ((name (completing-read "org-contacts NAME: " (mapcar #'car (org-contacts-db)))))
     (concat "org-contact:" name)))
 
 (defun org-contacts-link-face (path)
@@ -1608,36 +1549,16 @@ Each element has the form (NAME . (FILE . POSITION))."
   (if (fboundp 'org-add-link-type)
       (org-add-link-type "mailto")))
 
-(defvar org-contacts-emails-list nil
-  "A list variable of all `org-contacts' emails.")
-
 (defun org-contacts-mailto-link--get-all-emails ()
   "Retrieve all `org-contacts' EMAIL property values."
-  (setq org-contacts-emails-list
-        (mapcar
-         (lambda (contact)
-           (let* ((org-contacts-buffer (find-file-noselect (car (org-contacts-files))))
-                  (name (plist-get contact :name))
-                  (position (plist-get contact :position))
-                  (email (save-excursion
-                           (with-current-buffer org-contacts-buffer
-                             (goto-char position)
-                             ;; (symbol-name (org-property-or-variable-value 'EMAIL))
-                             (when-let* ((pvalue (org-entry-get (point) "EMAIL")))
-                               ;; handle `mailto:' link. e.g. "[[mailto:yantar92@posteo.net]]", "[[mailto:yantar92@posteo.net][yantar92@posteo.net]]"
-                               ;; Reference the testing file `test-org-contacts.el'.
-                               (if (string-match
-                                    "\\[\\[mailto:\\(.*\\)\\]\\(\\[.*\\]\\)\\]\\(,\\ *\\[\\[mailto:\\(.*\\)\\]\\(\\[.*\\]\\)\\]\\)"
-                                    pvalue)
-                                   (match-string 1 pvalue)
-                                 pvalue))))))
-             (ignore name)
-             ;; (cons name email)
-             email))
-         (org-contacts-all-contacts)))
-  ;; clean nil and empty string "" from result.
-  (delete ""
-          (delete nil org-contacts-emails-list)))
+  (seq-keep
+   (lambda (contact)
+     (when-let* ((email (cdr (assoc-string
+                              org-contacts-email-property
+                              (nth 2 contact))))
+                 ((not (string-empty-p email))))
+       email))
+   (org-contacts-db)))
 
 (defun org-contacts-mailto-link-completion (&optional _arg)
   "Org mode link `mailto:' completion with `org-contacts' emails."
