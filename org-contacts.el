@@ -872,15 +872,16 @@ This can be property key checking."
 (defvar org-contacts-ahead-space-padding (make-string 5 ? )
   "The space padding for align avatar image with contact name and properties.")
 
-(defun org-contacts--candidate (headline)
+(defun org-contacts--candidate (contact)
   "Return candidate string from Org HEADLINE epom element node."
-  (let* ((org-contacts-icon-size 32)
-         (contact-name (org-element-property :raw-value headline))
-         (tags (org-element-property :tags headline))
-         (properties (org-entry-properties headline 'standard))
-         ;; extra headline properties
+  (let* ((contact-name (car contact))
+         (marker (nth 1 contact))
+         (properties (nth 2 contact))
+         (tags (when-let* ((tagstr (cdr (assoc-string "ALLTAGS" properties)))
+                           ((not (string-empty-p tagstr))))
+                 (org-split-string tagstr ":")))
          (avatar-image-path
-          (when-let* ((avatar-value (org-entry-get headline "AVATAR"))
+          (when-let* ((avatar-value (cdr (assoc-string "AVATAR" properties)))
                       (avatar-link-path (cond
                                          ;; bracket link: [[file:contact dir/avatar image.png]]
                                          ;; TEST:
@@ -922,9 +923,9 @@ This can be property key checking."
          (info (concat "\n"
                        (concat org-contacts-ahead-space-padding "   ")
                        (let ((org-property-separators (list (cons org-contacts-nickname-property "[,\ ]"))))
-                         (org-entry-get headline org-contacts-nickname-property))
+                         (cdr (assoc-string org-contacts-nickname-property properties)))
                        (let ((org-property-separators (list (cons org-contacts-email-property "[,\ ]"))))
-                         (org-entry-get headline org-contacts-email-property))
+                         (cdr (assoc-string org-contacts-email-property properties)))
                        "\n"))
          (middle-line-length (let ((length (- (abs org-tags-column)
                                               (length (string-join tags ":"))
@@ -945,79 +946,30 @@ This can be property key checking."
         (format " %s [%s]"
                 (make-string (or middle-line-length 0) ?―)
                 (string-join tags ":")))
-       'contact-name contact-name
+       'marker marker
        'annotation info))))
 
-(defun org-contacts--candidates (files)
-  "Return a list of candidates from FILES."
-  (with-temp-buffer
-    (dolist (file files)
-      (insert-file-contents file) ; don't need to actually open file.
-      (goto-char (point-max))
-      (newline 2))
-    (delay-mode-hooks ; This will prevent user hooks from running during parsing.
-      (org-mode)
-      (goto-char (point-min))
-      (let ((candidates nil))
-        (org-element-map (org-element-parse-buffer 'headline) 'headline
-          (lambda (headline)
-            (when-let* ((candidate (org-contacts--candidate headline)))
-              (push candidate candidates))))
-        (nreverse candidates)))))
+(defun org-contacts--candidates ()
+  "Return a list of candidates."
+  (mapcar #'org-contacts--candidate (org-contacts-db)))
 
 (defun org-contacts--annotator (candidate)
   "Annotate contact completion CANDIDATE."
   (concat (propertize " " 'display '(space :align-to center))
           (get-text-property 0 'annotation candidate)))
 
-(defun org-contacts--return-candidates (&optional files)
-  "Return `org-contacts' candidates which parsed from FILES."
-  (if-let* ((files (or files org-contacts-files)))
-      (org-contacts--candidates files)
-    (user-error "Files does not exist: %S" files)))
-
-(defvar org-contacts--candidates-cache nil
-  "A cache variable of `org-contacts--candidates'.")
-
-(defun org-contacts-cache-reset ()
-  "Reset `org-contacts--candidates-cache'."
-  (interactive)
-  (setq org-contacts--candidates-cache nil))
-
-(defun org-contacts-browse-function (contact-name)
-  "Jump to CONTACT-NAME headline."
-  (mapcar
-   (lambda (file)
-     (let ((buf (find-file-noselect (expand-file-name file))))
-       (with-current-buffer buf
-         ;; NOTE: `org-goto-marker-or-bmk' will display buffer in current window, not follow `display-buffer' rule.
-         (when-let* ((found-contact (org-find-exact-headline-in-buffer contact-name)))
-           (org-goto-marker-or-bmk found-contact)
-           ;; FIXME: `goto-char' not physically move point in buffer.
-           ;; (display-buffer buf '(display-buffer-below-selected))
-           ;; (goto-char (org-find-exact-headline-in-buffer contact-name nil t))
-           (org-fold-show-context)))))
-   org-contacts-files))
-
 ;;;###autoload
-(defun org-contacts (&optional files)
-  "Search `org-contacts' from FILES and jump to contact location."
+(defun org-contacts ()
+  "Search `org-contacts' and jump to contact location."
   (interactive)
-  (unless org-contacts--candidates-cache
-    (setq org-contacts--candidates-cache
-          (org-contacts--return-candidates (or files org-contacts-files))))
-  (if-let* ((files (or files org-contacts-files))
-            ((seq-every-p 'file-exists-p files)))
-      (when-let* ((candidates org-contacts--candidates-cache)
-                  (minibuffer-allow-text-properties t)
-                  (completion-extra-properties
-                   (list :category 'org-contacts
-                         :annotation-function #'org-contacts--annotator))
-                  (choice (completing-read "org-contacts: " candidates nil 'require-match))
-                  (contact-name (get-text-property 0 'contact-name choice)))
-        ;; jump to org-contacts file contact position.
-        (org-contacts-browse-function contact-name))
-    (user-error "Files does not exist: %S" files)))
+  (when-let* ((candidates (org-contacts--candidates))
+              (minibuffer-allow-text-properties t)
+              (completion-extra-properties
+               (list :category 'org-contacts
+                     :annotation-function #'org-contacts--annotator))
+              (choice (completing-read "org-contacts: " candidates nil 'require-match))
+              (marker (get-text-property 0 'marker choice)))
+    (org-goto-marker-or-bmk marker)))
 
 ;;;###autoload
 (defun org-contacts-agenda (name)
