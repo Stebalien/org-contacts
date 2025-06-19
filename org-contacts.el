@@ -713,24 +713,19 @@ Usage: (add-hook \\='completion-at-point-functions
   (when-let* ((end (point))
               (begin (save-excursion (skip-chars-backward "[:alnum:]@") (point)))
               (symbol (buffer-substring-no-properties begin end))
-              (org-contacts-prefix-p (string-prefix-p "@" symbol)))
-    (when org-contacts-prefix-p
-      (list begin
-            end
-            (completion-table-dynamic
-             (lambda (_)
-               (mapcar
-                (lambda (contact) (concat "@" (car contact)))
-                (org-contacts-db))))
-
-            :predicate 'stringp
-            :exclusive 'no
-            ;; properties check out `completion-extra-properties'
-            :annotation-function #'org-contacts-org-complete--annotation-function
-            :exit-function #'org-contacts-org-complete--exit-function
-            :company-docsig #'identity                                    ; metadata
-            :company-doc-buffer #'org-contacts-org-complete--doc-function ; doc popup
-            :company-location #'org-contacts-org-complete--location-function))))
+              (org-contacts-prefix-p (string-prefix-p "@" symbol))
+              (cands (mapcar (lambda (c) (concat "@" (car c))) (org-contacts-db))))
+    (list begin
+          end
+          cands
+          :predicate 'stringp
+          :exclusive 'no
+          ;; properties check out `completion-extra-properties'
+          :annotation-function #'org-contacts-org-complete--annotation-function
+          :exit-function #'org-contacts-org-complete--exit-function
+          :company-docsig #'identity                                    ; metadata
+          :company-doc-buffer #'org-contacts-org-complete--doc-function ; doc popup
+          :company-location #'org-contacts-org-complete--location-function)))
 
 ;;;###autoload
 (defun org-contacts-org-complete-setup ()
