@@ -717,7 +717,7 @@ Usage: (add-hook \\='completion-at-point-functions
               (cands (mapcar (lambda (c) (concat "@" (car c))) (org-contacts-db))))
     (list begin
           end
-          cands
+          (completion-table-case-fold cands)
           :predicate 'stringp
           :exclusive 'no
           ;; properties check out `completion-extra-properties'
