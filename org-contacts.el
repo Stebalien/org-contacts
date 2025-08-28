@@ -673,7 +673,9 @@ See (org) Matching tags and properties for a complete description."
                                   (delete-other-windows))
                                  ((org-at-block-p)
                                   (org-narrow-to-block))
-                                 (t (org-narrow-to-subtree)))
+                                 (t (org-narrow-to-subtree)
+                                    (when (org-goto-first-child)
+                                      (narrow-to-region (point-min) (point)))))
                            (buffer-substring (point-min) (point-max))))))
     (with-current-buffer doc-buffer
       (read-only-mode 1)
