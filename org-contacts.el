@@ -652,8 +652,12 @@ See (org) Matching tags and properties for a complete description."
 
 (defun org-contacts-org-complete--annotation-function (candidate)
   "Return `org-contacts' tags of contact CANDIDATE."
-  ;; TODO
-  (ignore candidate))
+  (when-let* ((candidate (substring-no-properties candidate 1 nil))
+              (contact (assoc-string candidate (org-contacts-db)))
+              (props (nth 2 contact))
+              (alltags (cdr (assoc-string "ALLTAGS" props)))
+              (tags (org-split-string alltags ":")))
+    (concat "  " (string-join tags " "))))
 
 (defun org-contacts-org-complete--doc-function (candidate)
   "Return `org-contacts' content of contact CANDIDATE."
