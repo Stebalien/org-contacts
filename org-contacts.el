@@ -318,7 +318,8 @@ buffer."
   "Return the contacts at point or marker POM or current position."
   (setq pom (or pom (point)))
   (org-with-point-at pom
-    (list (org-get-heading t) (set-marker (make-marker) pom) (org-entry-properties pom 'all))))
+    (list (substring-no-properties (org-get-heading t t t t))
+          (set-marker (make-marker) pom) (org-entry-properties pom 'all))))
 
 (defun org-contacts-filter (&optional name-match tags-match prop-match)
   "Search for a contact matching any of NAME-MATCH, TAGS-MATCH, PROP-MATCH.
