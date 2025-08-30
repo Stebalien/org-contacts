@@ -729,6 +729,8 @@ Usage: (add-hook \\='completion-at-point-functions
           :exclusive 'no
           ;; properties check out `completion-extra-properties'
           :annotation-function #'org-contacts-org-complete--annotation-function
+          :category 'org-contacts
+          :company-kind (lambda (_cand) 'org-contacts)
           :exit-function #'org-contacts-org-complete--exit-function
           :company-docsig #'identity                                    ; metadata
           :company-doc-buffer #'org-contacts-org-complete--doc-function ; doc popup
